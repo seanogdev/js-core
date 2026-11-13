@@ -281,6 +281,21 @@ function scopedServiceEndpoints(
   );
 }
 
+/**
+ * Build a copy of {@link base} without the payload filter key. FDv2 does not support payload
+ * filters, so FDv2 sources use this copy and do not send the filter.
+ */
+function withoutPayloadFilter(base: ServiceEndpoints): ServiceEndpoints {
+  return new ServiceEndpoints(
+    base.streaming,
+    base.polling,
+    base.events,
+    base.analyticsEventPath,
+    base.diagnosticEventPath,
+    base.includeAuthorizationHeader,
+  );
+}
+
 const SUPPORTED_INITIALIZER_TYPES = ['file', 'polling', 'testData'];
 const SUPPORTED_SYNCHRONIZER_TYPES = ['polling', 'streaming', 'testData'];
 
@@ -457,6 +472,7 @@ function constructFDv2(
     const initializers: subsystem.LDDataSourceFactory[] = [];
     const synchronizers: subsystem.LDDataSourceFactory[] = [];
     const fdv1FallbackSynchronizers: subsystem.LDDataSourceFactory[] = [];
+    const unfilteredServiceEndpoints = withoutPayloadFilter(config.serviceEndpoints);
 
     if (isCustomOptions(dataSystem.dataSource)) {
       const { initializers: initializerConfigs = [], synchronizers: synchronizerConfigs = [] } =
@@ -472,10 +488,10 @@ function constructFDv2(
           }
           case 'polling': {
             const pollingEndpoints = initializerConfig.baseUri
-              ? scopedServiceEndpoints(config.serviceEndpoints, {
+              ? scopedServiceEndpoints(unfilteredServiceEndpoints, {
                   polling: initializerConfig.baseUri,
                 })
-              : undefined;
+              : unfilteredServiceEndpoints;
             initializers.push(
               () =>
                 new OneShotInitializerFDv2(
@@ -508,10 +524,10 @@ function constructFDv2(
             const { streamInitialReconnectDelay = DEFAULT_STREAM_RECONNECT_DELAY } =
               synchronizerConfig;
             const streamingEndpoints = synchronizerConfig.baseUri
-              ? scopedServiceEndpoints(config.serviceEndpoints, {
+              ? scopedServiceEndpoints(unfilteredServiceEndpoints, {
                   streaming: synchronizerConfig.baseUri,
                 })
-              : undefined;
+              : unfilteredServiceEndpoints;
             synchronizers.push(
               () =>
                 new StreamingProcessorFDv2(
@@ -529,10 +545,10 @@ function constructFDv2(
           case 'polling': {
             const { pollInterval = DEFAULT_POLL_INTERVAL } = synchronizerConfig;
             const pollingEndpoints = synchronizerConfig.baseUri
-              ? scopedServiceEndpoints(config.serviceEndpoints, {
+              ? scopedServiceEndpoints(unfilteredServiceEndpoints, {
                   polling: synchronizerConfig.baseUri,
                 })
-              : undefined;
+              : unfilteredServiceEndpoints;
             synchronizers.push(
               () =>
                 new PollingProcessorFDv2(
@@ -566,7 +582,14 @@ function constructFDv2(
         initializers.push(
           () =>
             new OneShotInitializerFDv2(
-              new Requestor(config, platform.requests, baseHeaders, '/sdk/poll', config.logger),
+              new Requestor(
+                config,
+                platform.requests,
+                baseHeaders,
+                '/sdk/poll',
+                config.logger,
+                unfilteredServiceEndpoints,
+              ),
               config.logger,
             ),
         );
@@ -587,6 +610,7 @@ function constructFDv2(
               baseHeaders,
               diagnosticsManager,
               reconnectDelay,
+              unfilteredServiceEndpoints,
             ),
         );
       }
@@ -598,7 +622,14 @@ function constructFDv2(
         synchronizers.push(
           () =>
             new PollingProcessorFDv2(
-              new Requestor(config, platform.requests, baseHeaders, '/sdk/poll', logger),
+              new Requestor(
+                config,
+                platform.requests,
+                baseHeaders,
+                '/sdk/poll',
+                logger,
+                unfilteredServiceEndpoints,
+              ),
               pollingInterval,
               logger,
             ),
